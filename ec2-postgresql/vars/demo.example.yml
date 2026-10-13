@@ -1,0 +1,20 @@
+---
+# Copy to vars/demo.yml (gitignored) and fill in real values:
+#   cp vars/demo.example.yml vars/demo.yml
+#
+# Then run:
+#   ansible-playbook playbooks/site.yml -e @vars/demo.yml
+
+aws_region: eu-west-3
+vpc_id: vpc-xxxxxxxxxxxxxxxxx
+subnet_id: subnet-xxxxxxxxxxxxxxxxx
+key_name: my-keypair
+ansible_ssh_private_key_file: ~/.ssh/my-keypair.pem
+
+instance_type: t3.medium
+instance_name: ansible-fedora-postgres
+ssh_ingress_cidr: 0.0.0.0/0
+
+postgres_db: appdb
+postgres_user: appuser
+postgres_password: change-me-strong-password

@@ -1,0 +1,34 @@
+# Ansible
+*.retry
+.vault_pass
+.vault_pass.txt
+
+# Secrets / local vars
+**/.env
+**/.env.*
+**/vars/demo.yml
+**/vars/*.local.yml
+**/group_vars/*/vault.yml
+**/*vault*.yml
+!**/group_vars/all.vault.example.yml
+
+# SSH keys
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# Python / collections cache
+__pycache__/
+*.pyc
+.venv/
+venv/
+collections/
+.ansible/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*~

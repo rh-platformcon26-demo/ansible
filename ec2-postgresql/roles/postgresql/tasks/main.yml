@@ -1,0 +1,112 @@
+---
+- name: Validate PostgreSQL password is set
+  ansible.builtin.assert:
+    that:
+      - postgres_password is defined
+      - postgres_password | length > 0
+    fail_msg: Set postgres_password via -e or vars file (do not commit secrets).
+
+- name: Install PostgreSQL packages
+  ansible.builtin.dnf:
+    name: "{{ postgres_packages }}"
+    state: present
+
+- name: Check whether PostgreSQL data directory is initialized
+  ansible.builtin.stat:
+    path: "{{ postgres_data_dir }}/PG_VERSION"
+  register: pg_version_file
+
+- name: Initialize PostgreSQL database cluster
+  ansible.builtin.command:
+    cmd: postgresql-setup --initdb
+  when: not pg_version_file.stat.exists
+  become: true
+
+- name: Ensure PostgreSQL conf.d directory exists
+  ansible.builtin.file:
+    path: "{{ postgres_config_dir }}/conf.d"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0755"
+
+- name: Deploy postgresql.conf drop-in for listen addresses
+  ansible.builtin.copy:
+    dest: "{{ postgres_config_dir }}/conf.d/99-ansible-listen.conf"
+    owner: postgres
+    group: postgres
+    mode: "0644"
+    content: |
+      # Managed by Ansible (ec2-postgresql)
+      listen_addresses = '{{ postgres_listen_addresses }}'
+      port = {{ postgres_port }}
+  notify: Restart postgresql
+
+- name: Ensure conf.d is included from postgresql.conf
+  ansible.builtin.lineinfile:
+    path: "{{ postgres_config_dir }}/postgresql.conf"
+    regexp: '^#?include_dir\s*=\s*'
+    line: "include_dir = 'conf.d'"
+    state: present
+  notify: Restart postgresql
+
+- name: Deploy pg_hba.conf (localhost only)
+  ansible.builtin.template:
+    src: pg_hba.conf.j2
+    dest: "{{ postgres_config_dir }}/pg_hba.conf"
+    owner: postgres
+    group: postgres
+    mode: "0600"
+  notify: Restart postgresql
+
+- name: Enable and start PostgreSQL
+  ansible.builtin.service:
+    name: "{{ postgres_service_name }}"
+    state: started
+    enabled: true
+
+- name: Flush handlers so PostgreSQL is ready before DB tasks
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for PostgreSQL to accept connections
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ postgres_port }}"
+    timeout: 60
+
+- name: Create application PostgreSQL role
+  community.postgresql.postgresql_user:
+    name: "{{ postgres_user }}"
+    password: "{{ postgres_password }}"
+    role_attr_flags: LOGIN
+    state: present
+  become: true
+  become_user: postgres
+
+- name: Create application database
+  community.postgresql.postgresql_db:
+    name: "{{ postgres_db }}"
+    owner: "{{ postgres_user }}"
+    encoding: UTF8
+    state: present
+  become: true
+  become_user: postgres
+
+- name: Grant privileges on application database
+  community.postgresql.postgresql_privs:
+    db: "{{ postgres_db }}"
+    roles: "{{ postgres_user }}"
+    privs: ALL
+    type: database
+    state: present
+  become: true
+  become_user: postgres
+
+- name: Show connection reminder
+  ansible.builtin.debug:
+    msg: >-
+      PostgreSQL listens on {{ postgres_listen_addresses }}:{{ postgres_port }} only.
+      Use an SSH tunnel:
+      ssh -i {{ ansible_ssh_private_key_file | default('~/.ssh/key.pem') }}
+      -L {{ postgres_port }}:127.0.0.1:{{ postgres_port }}
+      {{ ansible_user | default('fedora') }}@{{ ansible_host }}

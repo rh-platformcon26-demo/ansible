@@ -1,0 +1,13 @@
+---
+- name: Provision Fedora EC2 for PostgreSQL
+  hosts: localhost
+  gather_facts: true
+  roles:
+    - role: ec2_fedora
+
+- name: Install and configure PostgreSQL (localhost only)
+  hosts: postgres_servers
+  gather_facts: true
+  become: true
+  roles:
+    - role: postgresql

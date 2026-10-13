@@ -1,0 +1,142 @@
+---
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - vpc_id is defined and vpc_id | length > 0
+      - subnet_id is defined and subnet_id | length > 0
+      - key_name is defined and key_name | length > 0
+      - ansible_ssh_private_key_file is defined and ansible_ssh_private_key_file | length > 0
+    fail_msg: >-
+      Set vpc_id, subnet_id, key_name, and ansible_ssh_private_key_file
+      (for example via -e @vars/demo.yml).
+
+- name: Resolve SSH private key path
+  ansible.builtin.set_fact:
+    _ssh_private_key: "{{ ansible_ssh_private_key_file | expanduser }}"
+
+- name: Ensure SSH private key exists
+  ansible.builtin.stat:
+    path: "{{ _ssh_private_key }}"
+  register: ssh_key_stat
+
+- name: Fail when SSH private key is missing
+  ansible.builtin.assert:
+    that:
+      - ssh_key_stat.stat.exists
+    fail_msg: "SSH private key not found at {{ _ssh_private_key }}"
+
+- name: Find latest Fedora Cloud AMI
+  amazon.aws.ec2_ami_info:
+    region: "{{ aws_region }}"
+    owners: "{{ ec2_ami_owners }}"
+    filters:
+      name: "{{ ec2_ami_name_pattern }}"
+      state: available
+      architecture: x86_64
+      "virtualization-type": hvm
+      "root-device-type": ebs
+  register: fedora_amis
+
+- name: Fail when no Fedora AMI was found
+  ansible.builtin.assert:
+    that:
+      - fedora_amis.images | length > 0
+    fail_msg: "No Fedora AMI matched {{ ec2_ami_name_pattern }} in {{ aws_region }}"
+
+- name: Select newest Fedora AMI
+  ansible.builtin.set_fact:
+    fedora_ami_id: "{{ (fedora_amis.images | sort(attribute='creation_date') | last).image_id }}"
+    fedora_ami_name: "{{ (fedora_amis.images | sort(attribute='creation_date') | last).name }}"
+
+- name: Show selected AMI
+  ansible.builtin.debug:
+    msg: "Using AMI {{ fedora_ami_id }} ({{ fedora_ami_name }})"
+
+- name: Create security group (SSH only)
+  amazon.aws.ec2_security_group:
+    region: "{{ aws_region }}"
+    name: "{{ security_group_name }}"
+    description: "SSH access for {{ instance_name }} (PostgreSQL stays localhost-only)"
+    vpc_id: "{{ vpc_id }}"
+    rules:
+      - proto: tcp
+        ports:
+          - 22
+        cidr_ip: "{{ ssh_ingress_cidr }}"
+        rule_desc: SSH
+    rules_egress:
+      - proto: all
+        cidr_ip: 0.0.0.0/0
+    state: present
+    tags:
+      Name: "{{ security_group_name }}"
+      ManagedBy: ansible
+      Playbook: ec2-postgresql
+  register: ec2_sg
+
+- name: Launch Fedora EC2 instance
+  amazon.aws.ec2_instance:
+    region: "{{ aws_region }}"
+    name: "{{ instance_name }}"
+    key_name: "{{ key_name }}"
+    instance_type: "{{ instance_type }}"
+    image_id: "{{ fedora_ami_id }}"
+    vpc_subnet_id: "{{ subnet_id }}"
+    security_groups:
+      - "{{ ec2_sg.group_id }}"
+    network:
+      assign_public_ip: "{{ assign_public_ip }}"
+    volumes:
+      - device_name: /dev/sda1
+        ebs:
+          volume_size: "{{ root_volume_size_gb }}"
+          volume_type: gp3
+          delete_on_termination: true
+    wait: true
+    wait_timeout: 600
+    state: present
+    tags:
+      Name: "{{ instance_name }}"
+      ManagedBy: ansible
+      Playbook: ec2-postgresql
+      Role: postgresql
+  register: ec2_instance
+
+- name: Set instance connection facts
+  ansible.builtin.set_fact:
+    ec2_instance_id: "{{ ec2_instance.instances[0].instance_id }}"
+    ec2_private_ip: "{{ ec2_instance.instances[0].private_ip_address }}"
+    ec2_public_ip: "{{ ec2_instance.instances[0].public_ip_address | default('') }}"
+    ec2_ansible_host: >-
+      {{
+        ec2_instance.instances[0].public_ip_address
+        | default(ec2_instance.instances[0].private_ip_address, true)
+      }}
+
+- name: Show instance details
+  ansible.builtin.debug:
+    msg:
+      - "instance_id={{ ec2_instance_id }}"
+      - "private_ip={{ ec2_private_ip }}"
+      - "public_ip={{ ec2_public_ip }}"
+      - "ansible_host={{ ec2_ansible_host }}"
+
+- name: Add EC2 host to postgres_servers
+  ansible.builtin.add_host:
+    name: "{{ instance_name }}"
+    groups: postgres_servers
+    ansible_host: "{{ ec2_ansible_host }}"
+    ansible_user: "{{ ec2_ssh_user }}"
+    ansible_ssh_private_key_file: "{{ _ssh_private_key }}"
+    ansible_python_interpreter: /usr/bin/python3
+    ec2_instance_id: "{{ ec2_instance_id }}"
+    ec2_public_ip: "{{ ec2_public_ip }}"
+    ec2_private_ip: "{{ ec2_private_ip }}"
+
+- name: Wait for SSH on the instance
+  ansible.builtin.wait_for:
+    host: "{{ ec2_ansible_host }}"
+    port: 22
+    delay: 15
+    timeout: 600
+    state: started

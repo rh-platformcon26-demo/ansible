@@ -1,0 +1,21 @@
+---
+# AWS
+aws_region: eu-west-3
+instance_type: t3.medium
+instance_name: ansible-fedora-postgres
+root_volume_size_gb: 30
+ssh_ingress_cidr: 0.0.0.0/0
+assign_public_ip: true
+
+# Required (override via -e or vars/demo.yml):
+# vpc_id: vpc-xxxxxxxx
+# subnet_id: subnet-xxxxxxxx
+# key_name: my-keypair
+# ansible_ssh_private_key_file: ~/.ssh/my-keypair.pem
+
+# PostgreSQL
+postgres_db: appdb
+postgres_user: appuser
+# postgres_password: set via -e or vault (required)
+postgres_listen_addresses: localhost
+postgres_port: 5432

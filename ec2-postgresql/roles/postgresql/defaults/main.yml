@@ -1,0 +1,13 @@
+---
+postgres_db: appdb
+postgres_user: appuser
+postgres_listen_addresses: localhost
+postgres_port: 5432
+postgres_packages:
+  - postgresql-server
+  - postgresql
+  - python3-psycopg2
+# Fedora stores versioned paths under /var/lib/pgsql/data by default for the distro package
+postgres_data_dir: /var/lib/pgsql/data
+postgres_config_dir: /var/lib/pgsql/data
+postgres_service_name: postgresql
