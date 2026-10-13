@@ -94,7 +94,7 @@
           delete_on_termination: true
     wait: true
     wait_timeout: 600
-    state: present
+    state: running
     tags:
       Name: "{{ instance_name }}"
       ManagedBy: ansible
