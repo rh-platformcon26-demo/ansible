@@ -127,6 +127,9 @@
     groups: postgres_servers
     ansible_host: "{{ ec2_ansible_host }}"
     ansible_user: "{{ ec2_ssh_user }}"
+    # Paramiko avoids OpenSSH client, which fails in OpenShift pods with
+    # arbitrary UIDs ("No user exists for uid ...") when /etc/passwd is RO.
+    ansible_connection: paramiko
     ansible_ssh_private_key_file: "{{ _ssh_private_key }}"
     ansible_python_interpreter: /usr/bin/python3
     ec2_instance_id: "{{ ec2_instance_id }}"
