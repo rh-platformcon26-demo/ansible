@@ -74,33 +74,61 @@
     port: "{{ postgres_port }}"
     timeout: 60
 
+# Use sudo -u postgres instead of become_user: postgres. Ansible's unprivileged
+# become needs POSIX ACLs (chmod A+user:...); Fedora Cloud often lacks that,
+# which breaks community.postgresql modules under become_user.
 - name: Create application PostgreSQL role
-  community.postgresql.postgresql_user:
-    name: "{{ postgres_user }}"
-    password: "{{ postgres_password }}"
-    role_attr_flags: LOGIN
-    state: present
-  become: true
-  become_user: postgres
+  ansible.builtin.shell: |
+    set -euo pipefail
+    role={{ postgres_user | quote }}
+    pass={{ postgres_password | quote }}
+    if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='${role}'" | grep -q 1; then
+      sudo -u postgres psql -v ON_ERROR_STOP=1 \
+        -c "ALTER ROLE \"${role}\" WITH LOGIN PASSWORD \$pw\$${pass}\$pw\$;"
+      echo "altered"
+    else
+      sudo -u postgres psql -v ON_ERROR_STOP=1 \
+        -c "CREATE ROLE \"${role}\" LOGIN PASSWORD \$pw\$${pass}\$pw\$;"
+      echo "created"
+    fi
+  args:
+    executable: /bin/bash
+  register: pg_role
+  changed_when: "'created' in pg_role.stdout"
+  no_log: true
 
 - name: Create application database
-  community.postgresql.postgresql_db:
-    name: "{{ postgres_db }}"
-    owner: "{{ postgres_user }}"
-    encoding: UTF8
-    state: present
-  become: true
-  become_user: postgres
+  ansible.builtin.command:
+    argv:
+      - sudo
+      - -u
+      - postgres
+      - createdb
+      - -O
+      - "{{ postgres_user }}"
+      - -E
+      - UTF8
+      - "{{ postgres_db }}"
+  register: pg_db
+  changed_when: pg_db.rc == 0
+  failed_when:
+    - pg_db.rc != 0
+    - "'already exists' not in (pg_db.stderr | default(''))"
 
 - name: Grant privileges on application database
-  community.postgresql.postgresql_privs:
-    db: "{{ postgres_db }}"
-    roles: "{{ postgres_user }}"
-    privs: ALL
-    type: database
-    state: present
-  become: true
-  become_user: postgres
+  ansible.builtin.command:
+    argv:
+      - sudo
+      - -u
+      - postgres
+      - psql
+      - -v
+      - ON_ERROR_STOP=1
+      - -d
+      - "{{ postgres_db }}"
+      - -c
+      - "GRANT ALL PRIVILEGES ON DATABASE {{ postgres_db }} TO {{ postgres_user }};"
+  changed_when: true
 
 - name: Show connection reminder
   ansible.builtin.debug:
