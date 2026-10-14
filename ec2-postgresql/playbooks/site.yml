@@ -11,3 +11,13 @@
   become: true
   roles:
     - role: postgresql
+
+- name: Write provision results for CI / catalog update
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Persist instance details as JSON
+      ansible.builtin.copy:
+        dest: "{{ provision_result_path | default('/tmp/ec2-provision-result.json') }}"
+        mode: "0644"
+        content: "{{ {'instance_name': instance_name, 'instance_id': ec2_instance_id, 'public_ip': ec2_public_ip, 'private_ip': ec2_private_ip, 'ansible_host': ec2_ansible_host, 'aws_region': aws_region} | to_nice_json }}\n"
