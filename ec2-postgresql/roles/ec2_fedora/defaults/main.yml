@@ -5,7 +5,7 @@ instance_name: ansible-fedora-postgres
 root_volume_size_gb: 30
 ssh_ingress_cidr: 0.0.0.0/0
 assign_public_ip: true
-ec2_ssh_user: fedora
+ec2_ssh_user: ec2-user
 security_group_name: "{{ instance_name }}-sg"
 ec2_ami_name_pattern: Fedora-Cloud-Base-AmazonEC2*x86_64*
 # Official Fedora AWS account (Cloud / AmazonEC2 images)
