@@ -140,6 +140,6 @@
   ansible.builtin.wait_for:
     host: "{{ ec2_ansible_host }}"
     port: 22
-    delay: 15
+    delay: 60
     timeout: 600
     state: started
